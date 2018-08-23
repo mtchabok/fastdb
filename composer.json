@@ -1,16 +1,27 @@
 {
   "name": "mtchabok/fastdb",
+  "type": "framework",
   "description": "PHP Database Framework With PDO",
+  "version": "0.0.1",
   "minimum-stability": "stable",
   "license": "GPL-3.0",
+  "support": {
+    "issues": "https://github.com/mtchabok/fastdb/issues",
+    "source": "https://github.com/mtchabok/fastdb"
+  },
+  "readme": "README.md",
   "authors": [
     {
       "name": "Mohammad Taghi Chabok",
-      "email": "mtchabok@gmail.com"
+      "email": "mtchabok@gmail.com",
+      "homepage": "http://www.mtchabok.com",
+      "role": "Developer"
     }
   ],
   "require": {
-    "php": ">=5.4.0"
+    "php": ">=5.4",
+    "ext-pdo": "*",
+    "catfan/medoo": "v1.5.7"
   },
   "autoload": {
     "psr-0": {
