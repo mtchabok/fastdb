@@ -18,14 +18,19 @@
       "role": "Developer"
     }
   ],
+  "repositories": [
+    {
+      "type":"vcs",
+      "url": "https://github.com/mtchabok/fastdb"
+    }
+  ],
   "require": {
     "php": ">=5.4",
-    "ext-pdo": "*",
-    "catfan/medoo": "v1.5.7"
+    "ext-pdo": "*"
   },
   "autoload": {
-    "psr-0": {
-      "Fastdb": "src/"
+    "psr-4": {
+      "Fastdb\\": "src"
     }
   }
 }
