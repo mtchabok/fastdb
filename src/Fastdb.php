@@ -1,43 +1,139 @@
 <?php
-/**
- * Created by PhpStorm.
- * User: mtchabok
- * Date: 8/23/2018
- * Time: 8:28 PM
- */
-
 namespace Fastdb;
-
+use PDO;
+use Exception;
+use PDOException;
 
 /**
  * Class Fastdb
+ * @author mtchabok
  * @package Fastdb
  */
 class Fastdb
 {
-	const DRIVER_MYSQL = 'MYSQL';
-	const DRIVER_MSSQL = 'MSSQL';
-	const DRIVER_SQLITE = 'SQLITE';
+	/**
+	 * status = [off, init, on, execute]
+	 * @var string
+	 */
+	protected $_status='off';
+
+	/**
+	 * @var Config
+	 */
+	protected $_config;
+
+	/**
+	 * @var \PDO
+	 */
+	protected $_pdo;
 
 	/**
 	 * @var string|Query
 	 */
-	protected $_query='';
+	protected $_query;
+
+
+
+	public function __construct($config=null)
+	{
+		if (!is_null($config)) $this->setConfig($config);
+	}
 
 	/**
+	 * get current status: execute|on|init|off
+	 * @return string
+	 */
+	public function getStatus()
+	{
+		return $this->_status;
+	}
+
+
+
+
+
+
+	/**
+	 * get current config object or new config object
+	 * @param bool $new=false
+	 * @return Config
+	 */
+	public function getConfig($new=false)
+	{
+		$config = $new
+			? new Config()
+			: ($this->_config instanceof Config ? clone $this->_config : new Config())
+		;
+		return $config;
+	}
+
+	/**
+	 * set config object
+	 * @param Config $config
+	 * @return $this
+	 */
+	public function setConfig(Config $config)
+	{
+		if($this->getStatus()=='off'){
+			$this->_config = $config;
+		}elseif($this->getConfig()->debug) throw new FastdbException('Database not ready for config');
+		return $this;
+	}
+
+
+
+
+
+
+	/**
+	 * connect to database
+	 * @return $this|bool
+	 */
+	public function connect()
+	{
+		if($this->getStatus()=='off') {
+			$this->_status = 'init';
+			$config = $this->getConfig();
+			$options = array(PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION);
+			try {
+				switch ($config->driver){
+					case 'mysql':
+						$options[PDO::MYSQL_ATTR_INIT_COMMAND] = 'SET NAMES "' . $config->charset . '"';
+						break;
+				}
+				$this->_pdo = new PDO($config->getPdoDsn(), $config->user, $config->pass, $options);
+				$this->_status = 'on';
+			} catch (PDOException $e) {
+				$this->_status = 'off';
+				if ($config->debug)
+					throw $e;
+				return false;
+			}
+		}
+		return $this;
+	}
+
+
+
+	/**
+	 * get last query object|string or new query object
 	 * @param bool $new=false
 	 * @return string|Query
 	 */
 	public function getQuery($new=false)
 	{
-		$query = $new
-			?new Query()
-			:$this->_query
-		;
+		$query = null;
+		if($new)
+			$query = new Query();
+		elseif ($this->_query instanceof Query)
+			$query = clone $this->_query;
+		elseif ($this->_query)
+			$query = $this->_query;
 		return $query;
 	}
 
 	/**
+	 * set query object|string
 	 * @param Query|string $query
 	 * @return $this
 	 */
@@ -47,11 +143,33 @@ class Fastdb
 		return $this;
 	}
 
+
+	/**
+	 * execute current query object|string
+	 * @return $this
+	 */
+	public function execute()
+	{
+		$this->connect();
+		if($this->getStatus()=='on'){
+
+		}elseif ($this->getStatus()=='off'){
+
+		}
+		return $this;
+	}
+
+
+	/**
+	 * @param $table
+	 * TODO: incomplete
+	 */
 	public function select($table)
 	{
 		$query = $this->getQuery(true);
 		$query->from($table)->select('*');
 		$this->setQuery($query);
+		$this->execute();
 	}
 
 }
