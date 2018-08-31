@@ -23,6 +23,11 @@ class Query
 	protected $_type = self::TYPE_SELECT;
 
 	/**
+	 * @var Query
+	 */
+	protected $_parent;
+
+	/**
 	 * selection fields
 	 * @var array
 	 */
@@ -34,6 +39,37 @@ class Query
 	 */
 	protected $_from = array();
 
+	/**
+	 * array of QueryJoin`s
+	 * @var array
+	 */
+	protected $_join = array();
+
+	/**
+	 * Query constructor.
+	 * @param Query $parent=null
+	 */
+	public function __construct(Query $parent=null)
+	{
+		$this->_parent = $parent;
+	}
+
+	/**
+	 * @return Query
+	 */
+	public function getQuery()
+	{
+		return new Query($this);
+	}
+
+	/**
+	 * parent query
+	 * @return Query
+	 */
+	public function getParent()
+	{
+		return $this->_parent;
+	}
 
 	/**
 	 * @return string
@@ -52,16 +88,14 @@ class Query
 		if(!is_array($name))
 			$name = array($alias=>$name);
 		foreach ($name as $k=>&$v) {
-			$this->_select[] = is_numeric($k)
-				? new QuerySelect($v)
-				: new QuerySelect($v, $k)
-			;
+			$this->_select[] = $name instanceof QuerySelect
+				? $name : new QuerySelect($v, is_numeric($k)?$k:null);
 		}
 		return $this;
 	}
 
 	/**
-	 * @param string|array|QueryFrom $table
+	 * @param string|array|QueryTable $table
 	 * @param string $alias=null
 	 * @return $this
 	 */
@@ -71,13 +105,22 @@ class Query
 			$table = array($alias=>$table);
 		foreach ($table as $k=>&$v) {
 			$this->_from[] = is_numeric($k)
-				? new QueryFrom($v)
-				: new QueryFrom($v, $k)
+				? new QueryTable($v)
+				: new QueryTable($v, $k)
 			;
 		}
 		return $this;
 	}
 
 
+	public function join($type, $table=null, $on=null)
+	{
+		if($type instanceof QueryJoin){
+			$this->_join[] = $type;
+		}else{
+			$this->_join[] = new QueryJoin($type, $table, $on);
+		}
+		return $this;
+	}
 
 }

@@ -32,6 +32,11 @@ class Fastdb
 	 */
 	protected $_query;
 
+	/**
+	 * @var \PDOStatement
+	 */
+	protected $_statment;
+
 
 
 	public function __construct($config=null)
@@ -140,6 +145,7 @@ class Fastdb
 	public function setQuery($query)
 	{
 		$this->_query = $query;
+		$this->_statment = null;
 		return $this;
 	}
 
@@ -152,11 +158,22 @@ class Fastdb
 	{
 		$this->connect();
 		if($this->getStatus()=='on'){
-
-		}elseif ($this->getStatus()=='off'){
-
+			$query = $this->getQuery();
+			if($query instanceof Query){
+				$this->_statment = $this->_pdo->prepare( (String) $query);
+				$this->_statment->execute();
+			}else{
+				$this->_statment = $this->_pdo->prepare($query);
+				$this->_statment->execute();
+			}
 		}
 		return $this;
+	}
+
+
+	public function fetch()
+	{
+
 	}
 
 
