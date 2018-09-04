@@ -72,14 +72,14 @@ class Config
 	{
 		$dsn = '';
 		switch ($this->driver){
-			case 'mysql':
+			case Fastdb::DRIVER_MYSQL:
 				$dsn = array();
 				$dsn[] = 'host='.$this->server;
 				if($this->database) $dsn[] = 'dbname='.$this->database;
 				if($this->charset) $dsn[] = 'charset='.$this->charset;
 				$dsn = 'mysql:'.implode(';', $dsn);
 				break;
-			case 'pgsql':
+			case Fastdb::DRIVER_PGSQL:
 				$dsn = array();
 				$dsn[] = 'host='.$this->server;
 				if($this->database) $dsn[] = 'dbname='.$this->database;
@@ -88,17 +88,17 @@ class Config
 				if($this->charset) $dsn[] = 'charset='.$this->charset;
 				$dsn = 'pgsql:'.implode(';', $dsn);
 				break;
-			case 'sqlsrv':
+			case Fastdb::DRIVER_SQLSRV:
 				$dsn = array();
 				$dsn[] = 'server='.$this->server.($this->port?",{$this->port}":'');
 				if($this->database) $dsn[] = 'database='.$this->database;
 				//if($this->charset) $dsn[] = 'charset='.$this->charset;
 				$dsn = 'sqlsrv:'.implode(';', $dsn);
 				break;
-			case 'sqlite':
+			case Fastdb::DRIVER_SQLITE:
 				$dsn = 'sqlite:'.$this->file;
 				break;
-			case 'sqlite2':
+			case Fastdb::DRIVER_SQLITE2:
 				$dsn = 'sqlite2:'.$this->file;
 				break;
 		}
