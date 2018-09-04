@@ -11,6 +11,12 @@ use PDOException;
  */
 class Fastdb
 {
+	CONST DRIVER_MYSQL = 'mysql';
+	CONST DRIVER_PGSQL = 'pgsql';
+	CONST DRIVER_SQLSRV = 'sqlsrv';
+	CONST DRIVER_SQLITE = 'sqlite';
+	CONST DRIVER_SQLITE2 = 'sqlite2';
+
 	/**
 	 * status = [off, init, on, execute]
 	 * @var string
@@ -102,12 +108,16 @@ class Fastdb
 			$options = array(PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION);
 			try {
 				switch ($config->driver){
-					case 'mysql':
-						$options[PDO::MYSQL_ATTR_INIT_COMMAND] = 'SET NAMES "' . $config->charset . '"';
+					case self::DRIVER_MYSQL:
+						if($config->charset)
+							$options[PDO::MYSQL_ATTR_INIT_COMMAND] = 'SET NAMES "' . $config->charset . '"';
 						break;
 				}
 				$this->_pdo = new PDO($config->getPdoDsn(), $config->user, $config->pass, $options);
-				$this->_status = 'on';
+				if($this->_pdo) {
+					$this->_statment = null;
+					$this->_status = 'on';
+				}else throw new PDOException($this->_pdo->errorInfo(), $this->_pdo->errorCode());
 			} catch (PDOException $e) {
 				$this->_status = 'off';
 				if ($config->debug)
@@ -152,28 +162,61 @@ class Fastdb
 
 	/**
 	 * execute current query object|string
-	 * @return $this
+	 * @return mixed
 	 */
 	public function execute()
 	{
+		$result = null;
 		$this->connect();
 		if($this->getStatus()=='on'){
 			$query = $this->getQuery();
-			if($query instanceof Query){
-				$this->_statment = $this->_pdo->prepare( (String) $query);
-				$this->_statment->execute();
-			}else{
-				$this->_statment = $this->_pdo->prepare($query);
-				$this->_statment->execute();
+			try{
+				$this->_status = 'execute';
+				if($query instanceof Query){
+					$this->_statment = $this->_pdo->prepare( (String) $query);
+					$this->_statment->execute();
+				}else{
+					$this->_statment = $this->_pdo->prepare($query);
+					$this->_statment->execute();
+				}
+				$this->_status = 'on';
+			}catch (PDOException $e){
+				$this->_status = 'on';
+				throw $e;
 			}
+		}else{
+			throw new FastdbException('not exist database connection');
 		}
-		return $this;
+		return $result;
 	}
 
 
 	public function fetch()
 	{
+		$return = null;
+		$this->execute();
+		if($this->_statment && !$this->_statment->errorCode()){
+			$return = $this->_statment->fetchObject();
+		}
+		return $return;
+	}
 
+	public function fetchAll(){
+		$return = null;
+		$this->execute();
+		if($this->_statment && !$this->_statment->errorCode()){
+			$return = $this->_statment->fetchAll(PDO::FETCH_OBJ);
+		}
+		return $return;
+	}
+
+	public function error()
+	{
+		$return = null;
+		if($this->_statment && $this->_statment->errorCode()){
+			$return = $this->_statment->errorInfo();
+		}
+		return $return;
 	}
 
 

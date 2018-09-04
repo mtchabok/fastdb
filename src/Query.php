@@ -112,7 +112,12 @@ class Query
 		return $this;
 	}
 
-
+	/**
+	 * @param string|QueryJoin $type
+	 * @param QueryTable $table=null
+	 * @param string $on=null
+	 * @return $this
+	 */
 	public function join($type, $table=null, $on=null)
 	{
 		if($type instanceof QueryJoin){
