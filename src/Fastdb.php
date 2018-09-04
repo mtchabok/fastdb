@@ -8,8 +8,9 @@ use PDOException;
  * Class Fastdb
  * @author mtchabok
  * @package Fastdb
+ * @property string status
  */
-class Fastdb
+class Fastdb extends \PDO
 {
 	CONST DRIVER_MYSQL = 'mysql';
 	CONST DRIVER_PGSQL = 'pgsql';
@@ -18,25 +19,23 @@ class Fastdb
 	CONST DRIVER_SQLITE2 = 'sqlite2';
 
 	/**
+	 * @var Config
+	 */
+	public $config;
+
+
+	/**
 	 * status = [off, init, on, execute]
 	 * @var string
 	 */
 	protected $_status='off';
 
-	/**
-	 * @var Config
-	 */
-	protected $_config;
-
-	/**
-	 * @var \PDO
-	 */
-	protected $_pdo;
 
 	/**
 	 * @var string|Query
 	 */
 	protected $_query;
+
 
 	/**
 	 * @var \PDOStatement
@@ -45,53 +44,10 @@ class Fastdb
 
 
 
-	public function __construct($config=null)
+	public function __construct(Config $config=null)
 	{
-		if (!is_null($config)) $this->setConfig($config);
+		$this->config = null!==$config? $config: new Config();
 	}
-
-	/**
-	 * get current status: execute|on|init|off
-	 * @return string
-	 */
-	public function getStatus()
-	{
-		return $this->_status;
-	}
-
-
-
-
-
-
-	/**
-	 * get current config object or new config object
-	 * @param bool $new=false
-	 * @return Config
-	 */
-	public function getConfig($new=false)
-	{
-		$config = $new
-			? new Config()
-			: ($this->_config instanceof Config ? clone $this->_config : new Config())
-		;
-		return $config;
-	}
-
-	/**
-	 * set config object
-	 * @param Config $config
-	 * @return $this
-	 */
-	public function setConfig(Config $config)
-	{
-		if($this->getStatus()=='off'){
-			$this->_config = $config;
-		}elseif($this->getConfig()->debug) throw new FastdbException('Database not ready for config');
-		return $this;
-	}
-
-
 
 
 
@@ -102,27 +58,25 @@ class Fastdb
 	 */
 	public function connect()
 	{
-		if($this->getStatus()=='off') {
+		if($this->_status=='off') {
 			$this->_status = 'init';
-			$config = $this->getConfig();
 			$options = array(PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION);
 			try {
-				switch ($config->driver){
+				switch ($this->config->driver){
 					case self::DRIVER_MYSQL:
-						if($config->charset)
-							$options[PDO::MYSQL_ATTR_INIT_COMMAND] = 'SET NAMES "' . $config->charset . '"';
+						if($this->config->charset)
+							$options[PDO::MYSQL_ATTR_INIT_COMMAND] = 'SET NAMES "' . $this->config->charset . '"';
 						break;
 				}
-				$this->_pdo = new PDO($config->getPdoDsn(), $config->user, $config->pass, $options);
-				if($this->_pdo) {
-					$this->_statment = null;
-					$this->_status = 'on';
-				}else throw new PDOException($this->_pdo->errorInfo(), $this->_pdo->errorCode());
+				parent::__construct($this->config->getPdoDsn(), $this->config->user, $this->config->pass, $options);
+				$this->_status = 'on';
+				$this->_query = null;
+				$this->_statment = null;
 			} catch (PDOException $e) {
 				$this->_status = 'off';
-				if ($config->debug)
+				if ($this->config->debug)
 					throw $e;
-				return false;
+				return $this;
 			}
 		}
 		return $this;
@@ -154,10 +108,12 @@ class Fastdb
 	 */
 	public function setQuery($query)
 	{
+		if($this->_status!='on') $this->connect();
 		$this->_query = $query;
-		$this->_statment = null;
+		$this->_statment = $this->prepare((string) $query);
 		return $this;
 	}
+
 
 
 	/**
@@ -166,70 +122,83 @@ class Fastdb
 	 */
 	public function execute()
 	{
-		$result = null;
-		$this->connect();
-		if($this->getStatus()=='on'){
-			$query = $this->getQuery();
-			try{
-				$this->_status = 'execute';
-				if($query instanceof Query){
-					$this->_statment = $this->_pdo->prepare( (String) $query);
-					$this->_statment->execute();
-				}else{
-					$this->_statment = $this->_pdo->prepare($query);
-					$this->_statment->execute();
-				}
-				$this->_status = 'on';
-			}catch (PDOException $e){
-				$this->_status = 'on';
-				throw $e;
-			}
-		}else{
-			throw new FastdbException('not exist database connection');
+		$result = false;
+		if($this->_status!='on') $this->connect();
+		$lastStatus = $this->_status;
+		try{
+			$this->_status = 'execute';
+			$result = $this->_statment->execute();
+			$this->_status = $lastStatus;
+		}catch (PDOException $e){
+			$this->_status = $lastStatus;
+			throw $e;
 		}
 		return $result;
 	}
 
 
+	/**
+	 * @return bool|\stdClass
+	 */
 	public function fetch()
 	{
-		$return = null;
-		$this->execute();
-		if($this->_statment && !$this->_statment->errorCode()){
-			$return = $this->_statment->fetchObject();
+		$result = false;
+		if($this->_status!='on') $this->connect();
+		$lastStatus = $this->_status;
+		try{
+			$this->_status = 'execute';
+			$result = $this->_statment->fetchObject();
+			$this->_status = $lastStatus;
+		}catch (PDOException $e){
+			$this->_status = $lastStatus;
+			throw $e;
 		}
-		return $return;
-	}
-
-	public function fetchAll(){
-		$return = null;
-		$this->execute();
-		if($this->_statment && !$this->_statment->errorCode()){
-			$return = $this->_statment->fetchAll(PDO::FETCH_OBJ);
-		}
-		return $return;
-	}
-
-	public function error()
-	{
-		$return = null;
-		if($this->_statment && $this->_statment->errorCode()){
-			$return = $this->_statment->errorInfo();
-		}
-		return $return;
+		return $result;
 	}
 
 
 	/**
-	 * @param $table
-	 * TODO: incomplete
+	 * @return array|bool
 	 */
-	public function select($table)
-	{
-		$query = $this->getQuery(true);
-		$query->from($table)->select('*');
-		$this->setQuery($query);
-		$this->execute();
+	public function fetchAll(){
+		$result = false;
+		if($this->_status!='on') $this->connect();
+		$lastStatus = $this->_status;
+		try{
+			$this->_status = 'execute';
+			$result = $this->_statment->fetchAll(PDO::FETCH_OBJ);
+			$this->_status = $lastStatus;
+		}catch (PDOException $e){
+			$this->_status = $lastStatus;
+			throw $e;
+		}
+		return $result;
 	}
+
+
+
+
+
+
+	public function __get($name)
+	{
+		$return = null;
+		switch ($name){
+			case 'status':
+				$return = $this->_status;
+				break;
+		}
+		return $return;
+	}
+
+	public function __set($name, $value)
+	{
+		switch ($name){
+			case 'status': break;
+			default: $this->{$name} = $value;
+		}
+	}
+
+
 
 }
