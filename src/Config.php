@@ -98,9 +98,6 @@ class Config
 			case Fastdb::DRIVER_SQLITE:
 				$dsn = 'sqlite:'.$this->file;
 				break;
-			case Fastdb::DRIVER_SQLITE2:
-				$dsn = 'sqlite2:'.$this->file;
-				break;
 		}
 		return $dsn;
 	}
