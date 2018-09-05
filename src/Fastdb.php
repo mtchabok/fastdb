@@ -49,6 +49,46 @@ class Fastdb extends \PDO
 	}
 
 
+	/**
+	 * return quote table name
+	 * @param string $name
+	 * @return string
+	 */
+	public function quoteTable($name)
+	{
+		$return = '';
+		switch ($this->config->driver){
+			case self::DRIVER_MYSQL:
+				$return = '`'.trim($name, ' `').'`';
+				break;
+			case self::DRIVER_SQLSRV:
+				$return = '['.trim($name, ' []').']';
+				break;
+		}
+		return $return;
+	}
+
+
+	/**
+	 * return quote field name of table
+	 * @param string $name
+	 * @return string
+	 */
+	public function quoteName($name)
+	{
+		$return = '';
+		switch ($this->config->driver){
+			case self::DRIVER_MYSQL:
+				$return = '`'.trim($name, ' `').'`';
+				break;
+			case self::DRIVER_SQLSRV:
+				$return = '['.trim($name, ' []').']';
+				break;
+		}
+		return $return;
+	}
+
+
 
 
 	/**
@@ -92,7 +132,7 @@ class Fastdb extends \PDO
 	{
 		$query = null;
 		if($new)
-			$query = new Query();
+			$query = new Query($this);
 		elseif ($this->_query instanceof Query)
 			$query = clone $this->_query;
 		elseif ($this->_query)
@@ -120,6 +160,7 @@ class Fastdb extends \PDO
 		if($this->_status!='on') $this->connect();
 		$this->_query = $statement;
 		try {
+			if($this->_query instanceof Query) $this->_query->setPdo($this);
 			$this->_statement = parent::prepare((string)$statement);
 			$this->_statement->executed = false;
 		}catch (PDOException $e){
@@ -127,6 +168,11 @@ class Fastdb extends \PDO
 		}
 		return $this->_statement;
 	}
+
+
+
+
+
 
 
 	/**
@@ -162,6 +208,7 @@ class Fastdb extends \PDO
 		$lastStatus = $this->_status;
 		try {
 			$this->_status = 'execute';
+			if($this->_query instanceof Query) $this->_query->setPdo($this);
 			$this->_statement = parent::query((string) $statement);
 			$this->_statement->executed = true;
 			$this->_status = $lastStatus;
@@ -186,6 +233,7 @@ class Fastdb extends \PDO
 		$lastStatus = $this->_status;
 		try {
 			$this->_status = 'execute';
+			if($this->_query instanceof Query) $this->_query->setPdo($this);
 			$affectedRecords = parent::exec((string) $statement);
 			$this->_status = $lastStatus;
 		}catch (PDOException $e){

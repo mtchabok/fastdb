@@ -23,6 +23,12 @@ class Query
 	protected $_type = self::TYPE_SELECT;
 
 	/**
+	 * @var Fastdb
+	 */
+	protected $_pdo;
+
+
+	/**
 	 * @var Query
 	 */
 	protected $_parent;
@@ -32,6 +38,24 @@ class Query
 	 * @var array
 	 */
 	protected $_select = array();
+
+	/**
+	 * table for insert records
+	 * @var QueryTable
+	 */
+	protected $_insert;
+
+	/**
+	 * table for update records
+	 * @var QueryTable
+	 */
+	protected $_update;
+
+	/**
+	 * table for delete records
+	 * @var QueryTable
+	 */
+	protected $_delete;
 
 	/**
 	 * from tables
@@ -46,21 +70,43 @@ class Query
 	protected $_join = array();
 
 	/**
-	 * Query constructor.
-	 * @param Query $parent=null
+	 * array of bind value
+	 * @var array
 	 */
-	public function __construct(Query $parent=null)
+	protected $_values = array();
+
+	/**
+	 * Query constructor.
+	 * @param Query|Fastdb $parent=null
+	 */
+	public function __construct($parent=null)
 	{
-		$this->_parent = $parent;
+		if($parent instanceof Fastdb)
+			$this->_pdo = $parent;
+		elseif($parent instanceof Query)
+			$this->_parent = $parent;
+	}
+
+
+
+	/**
+	 * @return Fastdb
+	 */
+	public function getPdo()
+	{
+		return $this->_pdo;
 	}
 
 	/**
-	 * @return Query
+	 * @param Fastdb $pdo
 	 */
-	public function getQuery()
+	public function setPdo(Fastdb $pdo)
 	{
-		return new Query($this);
+		$this->_pdo = $pdo;
 	}
+
+
+
 
 	/**
 	 * parent query
@@ -70,6 +116,16 @@ class Query
 	{
 		return $this->_parent;
 	}
+
+
+	/**
+	 * @return Query
+	 */
+	public function getQuery()
+	{
+		return new Query($this);
+	}
+
 
 	/**
 	 * @return string
@@ -93,6 +149,47 @@ class Query
 		}
 		return $this;
 	}
+
+
+	/**
+	 * @param string|QueryTable $table
+	 * @param string $alias
+	 * @return $this
+	 */
+	public function insert($table, $alias=null)
+	{
+		$this->_type = self::TYPE_INSERT;
+		$this->_insert = $table instanceof QueryTable ? $table : new QueryTable($table, $alias);
+		return $this;
+	}
+
+
+	/**
+	 * @param string|QueryTable $table
+	 * @param string $alias
+	 * @return $this
+	 */
+	public function update($table, $alias=null)
+	{
+		$this->_type = self::TYPE_UPDATE;
+		$this->_insert = $table instanceof QueryTable ? $table : new QueryTable($table, $alias);
+		return $this;
+	}
+
+
+	/**
+	 * @param string|QueryTable $table
+	 * @param string $alias
+	 * @return $this
+	 */
+	public function delete($table, $alias = null)
+	{
+		$this->_type = self::TYPE_DELETE;
+		$this->_insert = $table instanceof QueryTable ? $table : new QueryTable($table, $alias);
+		return $this;
+	}
+
+
 
 	/**
 	 * @param string|array|QueryTable $table
@@ -126,6 +223,86 @@ class Query
 			$this->_join[] = new QueryJoin($type, $table, $on);
 		}
 		return $this;
+	}
+
+
+	/**
+	 * @param string $value
+	 * @return string
+	 */
+	public function quote($value)
+	{
+		return $this->_pdo->quote($value);
+	}
+
+
+	/**
+	 * @param string $name
+	 * @return string
+	 */
+	public function quoteTable($name)
+	{
+		return $this->_pdo->quoteTable($name);
+	}
+
+
+	/**
+	 * @param string $name
+	 * @return string
+	 */
+	public function quoteName($name)
+	{
+		return $this->_pdo->quoteName($name);
+	}
+
+
+
+	/**
+	 * @param string|array $key
+	 * @param mixed $value=null
+	 * @return $this
+	 */
+	public function setValue($key, $value=null)
+	{
+		$values = is_array($key)?$key:array($key=>$value);
+		foreach ($values as $key=>&$value){
+			$key = ':'.ltrim($key, ' :');
+			$this->_values[$key] = $value;
+		}
+		return $this;
+	}
+
+
+	/**
+	 * @param string $key
+	 * @return mixed|null
+	 */
+	public function getValue($key)
+	{
+		$key = ':'.ltrim($key, ' :');
+		$return = null;
+		if(array_key_exists($key, $this->_values))
+			$return = $this->_values[$key];
+		return $return;
+	}
+
+
+	/**
+	 * bind value and return key
+	 * @param string|array|Query $value
+	 * @param string $key=null
+	 * @return array|string
+	 */
+	public function value($value = null, $key = null)
+	{
+		$values = is_array($value)?$value:array($key=>$value);
+		$return = array();
+		foreach ($values as $key=>&$value){
+			if(!$key || is_numeric($key)) $key = ':VAL'.count($this->_values);
+			$this->setValue($key,$value);
+			$return[] = $key;
+		}
+		return count($return)===1?$return[0]:$return;
 	}
 
 }
