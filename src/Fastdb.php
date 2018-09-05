@@ -16,7 +16,6 @@ class Fastdb extends \PDO
 	CONST DRIVER_PGSQL = 'pgsql';
 	CONST DRIVER_SQLSRV = 'sqlsrv';
 	CONST DRIVER_SQLITE = 'sqlite';
-	CONST DRIVER_SQLITE2 = 'sqlite2';
 
 	/**
 	 * @var Config
@@ -40,7 +39,7 @@ class Fastdb extends \PDO
 	/**
 	 * @var \PDOStatement
 	 */
-	protected $_statment;
+	protected $_statement;
 
 
 
@@ -71,7 +70,7 @@ class Fastdb extends \PDO
 				parent::__construct($this->config->getPdoDsn(), $this->config->user, $this->config->pass, $options);
 				$this->_status = 'on';
 				$this->_query = null;
-				$this->_statment = null;
+				$this->_statement = null;
 			} catch (PDOException $e) {
 				$this->_status = 'off';
 				if ($this->config->debug)
@@ -108,12 +107,26 @@ class Fastdb extends \PDO
 	 */
 	public function setQuery($query)
 	{
-		if($this->_status!='on') $this->connect();
-		$this->_query = $query;
-		$this->_statment = $this->prepare((string) $query);
+		$this->prepare($query);
 		return $this;
 	}
 
+	/**
+	 * @param Query|string $statement
+	 * @return \PDOStatement
+	 */
+	public function prepare($statement)
+	{
+		if($this->_status!='on') $this->connect();
+		$this->_query = $statement;
+		try {
+			$this->_statement = parent::prepare((string)$statement);
+			$this->_statement->executed = false;
+		}catch (PDOException $e){
+			throw $e;
+		}
+		return $this->_statement;
+	}
 
 
 	/**
@@ -122,32 +135,99 @@ class Fastdb extends \PDO
 	 */
 	public function execute()
 	{
-		$result = false;
 		if($this->_status!='on') $this->connect();
 		$lastStatus = $this->_status;
 		try{
 			$this->_status = 'execute';
-			$result = $this->_statment->execute();
+			$this->_statement->executed = $this->_statement->execute();
 			$this->_status = $lastStatus;
 		}catch (PDOException $e){
 			$this->_status = $lastStatus;
+			throw $e;
+		}
+		return $this->_statement->executed;
+	}
+
+
+
+	/**
+	 * execute any query without use params and return pdo statement
+	 * @param Query|string $statement
+	 * @return \PDOStatement
+	 */
+	public function query($statement)
+	{
+		if($this->_status!='on') $this->connect();
+		$this->_query = $statement;
+		$lastStatus = $this->_status;
+		try {
+			$this->_status = 'execute';
+			$this->_statement = parent::query((string) $statement);
+			$this->_statement->executed = true;
+			$this->_status = $lastStatus;
+		}catch (PDOException $e){
+			$this->_status = $lastStatus;
+			throw $e;
+		}
+		return $this->_statement;
+	}
+
+
+
+	/**
+	 * execute INSERT|UPDATE|DELETE Query and return number of affected records
+	 * @param Query|string $statement
+	 * @return int
+	 */
+	public function exec($statement)
+	{
+		if($this->_status!='on') $this->connect();
+		$this->_query = $statement;
+		$lastStatus = $this->_status;
+		try {
+			$this->_status = 'execute';
+			$affectedRecords = parent::exec((string) $statement);
+			$this->_status = $lastStatus;
+		}catch (PDOException $e){
+			$this->_status = $lastStatus;
+			throw $e;
+		}
+		return $affectedRecords;
+	}
+
+
+	/**
+	 * return row count of execute current query
+	 * @return int
+	 */
+	public function rowCount()
+	{
+		if($this->_status!='on') $this->connect();
+		try{
+			if(empty($this->_statement->executed))
+				$this->_statement->executed = $this->_statement->execute();
+			$result = $this->_statement->rowCount();
+		}catch (PDOException $e){
 			throw $e;
 		}
 		return $result;
 	}
 
 
+
 	/**
+	 * @param string $class_name='stdClass'
 	 * @return bool|\stdClass
 	 */
-	public function fetch()
+	public function fetch($class_name='stdClass')
 	{
-		$result = false;
 		if($this->_status!='on') $this->connect();
 		$lastStatus = $this->_status;
 		try{
 			$this->_status = 'execute';
-			$result = $this->_statment->fetchObject();
+			if(empty($this->_statement->executed))
+				$this->_statement->executed = $this->_statement->execute();
+			$result = $this->_statement->fetchObject($class_name);
 			$this->_status = $lastStatus;
 		}catch (PDOException $e){
 			$this->_status = $lastStatus;
@@ -161,12 +241,13 @@ class Fastdb extends \PDO
 	 * @return array|bool
 	 */
 	public function fetchAll(){
-		$result = false;
 		if($this->_status!='on') $this->connect();
 		$lastStatus = $this->_status;
 		try{
 			$this->_status = 'execute';
-			$result = $this->_statment->fetchAll(PDO::FETCH_OBJ);
+			if(empty($this->_statement->executed))
+				$this->_statement->executed = $this->_statement->execute();
+			$result = $this->_statement->fetchAll(PDO::FETCH_OBJ);
 			$this->_status = $lastStatus;
 		}catch (PDOException $e){
 			$this->_status = $lastStatus;
@@ -174,6 +255,9 @@ class Fastdb extends \PDO
 		}
 		return $result;
 	}
+
+
+
 
 
 
