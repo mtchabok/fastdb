@@ -49,6 +49,54 @@ class Fastdb extends \PDO
 	}
 
 
+	/**
+	 * return quote table name
+	 * @param string $name
+	 * @return string
+	 */
+	public function quoteTable($name)
+	{
+		$return = '';
+		switch ($this->config->driver){
+			case self::DRIVER_MYSQL:
+				$return = explode('.', trim($name, ' `'));
+				foreach ($return as &$v) $v = '`'.trim($v, ' `').'`';
+				$return = implode('.', $return);
+				break;
+			case self::DRIVER_SQLSRV:
+				$return = explode('.', trim($name, ' []'));
+				foreach ($return as &$v) $v = '['.trim($v, ' []').']';
+				$return = implode('.', $return);
+				break;
+		}
+		return $return;
+	}
+
+
+	/**
+	 * return quote field name of table
+	 * @param string $name
+	 * @return string
+	 */
+	public function quoteName($name)
+	{
+		$return = '';
+		switch ($this->config->driver){
+			case self::DRIVER_MYSQL:
+				$return = explode('.', trim($name, ' `'));
+				foreach ($return as &$v) $v = '`'.trim($v, ' `').'`';
+				$return = implode('.', $return);
+				break;
+			case self::DRIVER_SQLSRV:
+				$return = explode('.', trim($name, ' []'));
+				foreach ($return as &$v) $v = '['.trim($v, ' []').']';
+				$return = implode('.', $return);
+				break;
+		}
+		return $return;
+	}
+
+
 
 
 	/**
@@ -92,7 +140,7 @@ class Fastdb extends \PDO
 	{
 		$query = null;
 		if($new)
-			$query = new Query();
+			$query = new Query($this);
 		elseif ($this->_query instanceof Query)
 			$query = clone $this->_query;
 		elseif ($this->_query)
@@ -113,20 +161,29 @@ class Fastdb extends \PDO
 
 	/**
 	 * @param Query|string $statement
-	 * @return \PDOStatement
+	 * @param array $driver_options=null
+	 * @return \PDOStatement|false
 	 */
-	public function prepare($statement)
+	public function prepare($statement, $driver_options=array())
 	{
 		if($this->_status!='on') $this->connect();
 		$this->_query = $statement;
 		try {
-			$this->_statement = parent::prepare((string)$statement);
+			if($this->_query instanceof Query) $this->_query->setParent($this);
+			$this->_statement = parent::prepare((string)$statement, $driver_options);
 			$this->_statement->executed = false;
 		}catch (PDOException $e){
-			throw $e;
+			if($this->config->debug)
+				throw $e;
+			else return false;
 		}
 		return $this->_statement;
 	}
+
+
+
+
+
 
 
 	/**
@@ -162,6 +219,7 @@ class Fastdb extends \PDO
 		$lastStatus = $this->_status;
 		try {
 			$this->_status = 'execute';
+			if($this->_query instanceof Query) $this->_query->setParent($this);
 			$this->_statement = parent::query((string) $statement);
 			$this->_statement->executed = true;
 			$this->_status = $lastStatus;
@@ -186,6 +244,7 @@ class Fastdb extends \PDO
 		$lastStatus = $this->_status;
 		try {
 			$this->_status = 'execute';
+			if($this->_query instanceof Query) $this->_query->setParent($this);
 			$affectedRecords = parent::exec((string) $statement);
 			$this->_status = $lastStatus;
 		}catch (PDOException $e){
