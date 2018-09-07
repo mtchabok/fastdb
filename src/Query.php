@@ -7,7 +7,7 @@
  */
 
 namespace Fastdb;
-
+require_once __DIR__.'/QueryName.php';
 
 class Query
 {
@@ -23,13 +23,7 @@ class Query
 	protected $_type = self::TYPE_SELECT;
 
 	/**
-	 * @var Fastdb
-	 */
-	protected $_pdo;
-
-
-	/**
-	 * @var Query
+	 * @var Query|Fastdb
 	 */
 	protected $_parent;
 
@@ -81,40 +75,30 @@ class Query
 	 */
 	public function __construct($parent=null)
 	{
-		if($parent instanceof Fastdb)
-			$this->_pdo = $parent;
-		elseif($parent instanceof Query)
-			$this->_parent = $parent;
+		if(null!==$parent) $this->setParent($parent);
 	}
-
-
-
-	/**
-	 * @return Fastdb
-	 */
-	public function getPdo()
-	{
-		return $this->_pdo;
-	}
-
-	/**
-	 * @param Fastdb $pdo
-	 */
-	public function setPdo(Fastdb $pdo)
-	{
-		$this->_pdo = $pdo;
-	}
-
 
 
 
 	/**
 	 * parent query
-	 * @return Query
+	 * @return Query|Fastdb
 	 */
 	public function getParent()
 	{
 		return $this->_parent;
+	}
+
+	/**
+	 * @param Fastdb|Query $parent
+	 * @return $this
+	 */
+	public function setParent($parent)
+	{
+		if($parent instanceof Fastdb || $parent instanceof Query)
+			$this->_parent = $parent;
+		else throw new FastdbException('only Fastdb | Query object');
+		return $this;
 	}
 
 
@@ -130,13 +114,14 @@ class Query
 	/**
 	 * @return string
 	 */
-	public function getType()
+	final public function getType()
 	{
 		return $this->_type;
 	}
 
 	/**
 	 * @param $name string|array|Query
+	 * @param string $alias=null
 	 * @return $this
 	 */
 	public function select($name, $alias=null)
@@ -144,8 +129,10 @@ class Query
 		if(!is_array($name))
 			$name = array($alias=>$name);
 		foreach ($name as $k=>&$v) {
-			$this->_select[] = $name instanceof QuerySelect
-				? $name : new QuerySelect($v, is_numeric($k)?$k:null);
+			if(!$v instanceof QuerySelectName)
+				$v = new QuerySelectName($v, (!$k || is_numeric($k))?null:$k);
+			$v->setParent($this);
+			$this->_select[] = $v;
 		}
 		return $this;
 	}
@@ -201,10 +188,10 @@ class Query
 		if(!is_array($table))
 			$table = array($alias=>$table);
 		foreach ($table as $k=>&$v) {
-			$this->_from[] = is_numeric($k)
-				? new QueryTable($v)
-				: new QueryTable($v, $k)
-			;
+			if(!$v instanceof QueryTableName)
+				$v = new QueryTableName($v, (!$k || is_numeric($k))?null:$k);
+			$v->setParent($this);
+			$this->_from[] = $v;
 		}
 		return $this;
 	}
@@ -232,7 +219,9 @@ class Query
 	 */
 	public function quote($value)
 	{
-		return $this->_pdo->quote($value);
+		$return = null;
+		if($this->_parent) $return = $this->_parent->quote($value);
+		return $return;
 	}
 
 
@@ -242,7 +231,9 @@ class Query
 	 */
 	public function quoteTable($name)
 	{
-		return $this->_pdo->quoteTable($name);
+		$return = null;
+		if($this->_parent) $return = $this->_parent->quoteTable($name);
+		return $return;
 	}
 
 
@@ -252,7 +243,9 @@ class Query
 	 */
 	public function quoteName($name)
 	{
-		return $this->_pdo->quoteName($name);
+		$return = null;
+		if($this->_parent) $return = $this->_parent->quoteName($name);
+		return $return;
 	}
 
 
@@ -269,6 +262,8 @@ class Query
 			$key = ':'.ltrim($key, ' :');
 			$this->_values[$key] = $value;
 		}
+		if($this->_parent instanceof Query)
+			$this->_parent->setValue($key, $value);
 		return $this;
 	}
 
@@ -288,6 +283,16 @@ class Query
 
 
 	/**
+	 * return all values
+	 * @return array
+	 */
+	public function getValues()
+	{
+		return $this->_values;
+	}
+
+
+	/**
 	 * bind value and return key
 	 * @param string|array|Query $value
 	 * @param string $key=null
@@ -295,14 +300,94 @@ class Query
 	 */
 	public function value($value = null, $key = null)
 	{
-		$values = is_array($value)?$value:array($key=>$value);
-		$return = array();
-		foreach ($values as $key=>&$value){
-			if(!$key || is_numeric($key)) $key = ':VAL'.count($this->_values);
-			$this->setValue($key,$value);
-			$return[] = $key;
+		$returnIsArray = false;
+		if(!is_array($value)){
+			$values = $value;
+			$returnIsArray = true;
+		}else $values = array($key=>$value);
+
+		if($this->_parent instanceof Query){
+			$keys = $this->_parent->value($values);
+		}else{
+			$keys = array_keys($values);
+			foreach ($keys as &$key){
+				if(!$key || is_numeric($key)) $key = uniqid(':VAL');
+				else $key = ':'.ltrim($key, ' :');
+			}
 		}
-		return count($return)===1?$return[0]:$return;
+
+		$values = array_values($values);
+		for($i=0;$i<count($keys);$i++){
+			$this->_values[$keys[$i]] = $values[$i];
+		}
+
+		return $returnIsArray?$keys:$keys[0];
 	}
+
+
+	public function __toString()
+	{
+		$query = '';
+		switch ($this->_type){
+			case 'insert':
+				$query.= 'INSERT'.' INTO '.$this->_insert;
+				$queryNames = array();
+				foreach ($this->_columns as $c) $queryNames[] = '#N_'.$c;
+				$query.= ' ('.implode(',', $queryNames).')';
+
+				$queryValues = array();
+				foreach ($this->_values as &$row){
+					$r = array();
+					foreach ($this->_columns as $k=>$c){
+						$r[] = isset($row[$k])?$row[$k]:'null';
+					}
+					$queryValues[] = '('.implode(',', $r).')';
+				}
+				$query.= ' VALUES '.implode(',', $queryValues);
+				break;
+			case 'update':
+				$query.= 'UPDATE '.$this->_update;
+				$queryValues = array();
+				foreach ($this->_values as &$row){
+					foreach ($this->_columns as $k=>$c){
+						$queryValues[] = '#N_'.$c.'='.(isset($row[$k])?$row[$k]:'null');
+					}
+					break;
+				}
+				$query.= ' SET '.implode(',', $queryValues);
+				if($this->_where)
+					$query.= ' WHERE '.implode(' AND ', $this->_where);
+				break;
+			case 'delete':
+				$query.= 'DELETE'.' FROM '.$this->_delete;
+				if($this->_where)
+					$query.= ' WHERE '.implode(' AND ', $this->_where);
+				break;
+			default:
+				$query = 'SELECT';
+				if($this->_select){
+					$querySelect = $this->_select;
+					foreach ($querySelect as &$qs){
+						$qs = ''.$qs;
+					}
+					$query.= ' '.implode(',', $querySelect);
+					$querySelect = null;
+				}else $query.= ' *';
+
+				if($this->_from){
+					$query.= ' FROM';
+					$queryFrom = $this->_from;
+					foreach ($queryFrom as &$qf){
+						$qf = ''.$qf;
+					}
+					$query.= ' '.implode(',', $queryFrom);
+					$queryFrom = null;
+				}
+			echo $query;
+
+		}
+		return $query;
+	}
+
 
 }

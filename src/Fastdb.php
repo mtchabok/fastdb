@@ -59,10 +59,14 @@ class Fastdb extends \PDO
 		$return = '';
 		switch ($this->config->driver){
 			case self::DRIVER_MYSQL:
-				$return = '`'.trim($name, ' `').'`';
+				$return = explode('.', trim($name, ' `'));
+				foreach ($return as &$v) $v = '`'.trim($v, ' `').'`';
+				$return = implode('.', $return);
 				break;
 			case self::DRIVER_SQLSRV:
-				$return = '['.trim($name, ' []').']';
+				$return = explode('.', trim($name, ' []'));
+				foreach ($return as &$v) $v = '['.trim($v, ' []').']';
+				$return = implode('.', $return);
 				break;
 		}
 		return $return;
@@ -79,10 +83,14 @@ class Fastdb extends \PDO
 		$return = '';
 		switch ($this->config->driver){
 			case self::DRIVER_MYSQL:
-				$return = '`'.trim($name, ' `').'`';
+				$return = explode('.', trim($name, ' `'));
+				foreach ($return as &$v) $v = '`'.trim($v, ' `').'`';
+				$return = implode('.', $return);
 				break;
 			case self::DRIVER_SQLSRV:
-				$return = '['.trim($name, ' []').']';
+				$return = explode('.', trim($name, ' []'));
+				foreach ($return as &$v) $v = '['.trim($v, ' []').']';
+				$return = implode('.', $return);
 				break;
 		}
 		return $return;
@@ -153,18 +161,21 @@ class Fastdb extends \PDO
 
 	/**
 	 * @param Query|string $statement
-	 * @return \PDOStatement
+	 * @param array $driver_options=null
+	 * @return \PDOStatement|false
 	 */
-	public function prepare($statement)
+	public function prepare($statement, $driver_options=array())
 	{
 		if($this->_status!='on') $this->connect();
 		$this->_query = $statement;
 		try {
-			if($this->_query instanceof Query) $this->_query->setPdo($this);
-			$this->_statement = parent::prepare((string)$statement);
+			if($this->_query instanceof Query) $this->_query->setParent($this);
+			$this->_statement = parent::prepare((string)$statement, $driver_options);
 			$this->_statement->executed = false;
 		}catch (PDOException $e){
-			throw $e;
+			if($this->config->debug)
+				throw $e;
+			else return false;
 		}
 		return $this->_statement;
 	}
@@ -208,7 +219,7 @@ class Fastdb extends \PDO
 		$lastStatus = $this->_status;
 		try {
 			$this->_status = 'execute';
-			if($this->_query instanceof Query) $this->_query->setPdo($this);
+			if($this->_query instanceof Query) $this->_query->setParent($this);
 			$this->_statement = parent::query((string) $statement);
 			$this->_statement->executed = true;
 			$this->_status = $lastStatus;
@@ -233,7 +244,7 @@ class Fastdb extends \PDO
 		$lastStatus = $this->_status;
 		try {
 			$this->_status = 'execute';
-			if($this->_query instanceof Query) $this->_query->setPdo($this);
+			if($this->_query instanceof Query) $this->_query->setParent($this);
 			$affectedRecords = parent::exec((string) $statement);
 			$this->_status = $lastStatus;
 		}catch (PDOException $e){
