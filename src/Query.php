@@ -35,19 +35,19 @@ class Query
 
 	/**
 	 * table for insert records
-	 * @var QueryTable
+	 * @var QueryTableName
 	 */
 	protected $_insert;
 
 	/**
 	 * table for update records
-	 * @var QueryTable
+	 * @var QueryTableName
 	 */
 	protected $_update;
 
 	/**
 	 * table for delete records
-	 * @var QueryTable
+	 * @var QueryTableName
 	 */
 	protected $_delete;
 
@@ -69,6 +69,22 @@ class Query
 	 */
 	protected $_values = array();
 
+
+	/**
+	 * @var array
+	 */
+	protected $_orders = array();
+
+	/**
+	 * @var int
+	 */
+	protected $_offsetLimit = 0;
+
+	/**
+	 * @var int
+	 */
+	protected $_offsetBegin = 0;
+
 	/**
 	 * Query constructor.
 	 * @param Query|Fastdb $parent=null
@@ -87,6 +103,16 @@ class Query
 	public function getParent()
 	{
 		return $this->_parent;
+	}
+
+	/**
+	 * @return Fastdb|null
+	 */
+	public function getDbLink()
+	{
+		return $this->_parent instanceof Fastdb
+			?$this->_parent
+			:($this->_parent instanceof Query?$this->_parent->getDbLink():null);
 	}
 
 	/**
@@ -139,47 +165,47 @@ class Query
 
 
 	/**
-	 * @param string|QueryTable $table
+	 * @param string|QueryTableName $table
 	 * @param string $alias
 	 * @return $this
 	 */
 	public function insert($table, $alias=null)
 	{
 		$this->_type = self::TYPE_INSERT;
-		$this->_insert = $table instanceof QueryTable ? $table : new QueryTable($table, $alias);
+		$this->_insert = $table instanceof QueryTableName ? $table : new QueryTableName($table, $alias);
 		return $this;
 	}
 
 
 	/**
-	 * @param string|QueryTable $table
+	 * @param string|QueryTableName $table
 	 * @param string $alias
 	 * @return $this
 	 */
 	public function update($table, $alias=null)
 	{
 		$this->_type = self::TYPE_UPDATE;
-		$this->_insert = $table instanceof QueryTable ? $table : new QueryTable($table, $alias);
+		$this->_insert = $table instanceof QueryTableName ? $table : new QueryTableName($table, $alias);
 		return $this;
 	}
 
 
 	/**
-	 * @param string|QueryTable $table
+	 * @param string|QueryTableName $table
 	 * @param string $alias
 	 * @return $this
 	 */
 	public function delete($table, $alias = null)
 	{
 		$this->_type = self::TYPE_DELETE;
-		$this->_insert = $table instanceof QueryTable ? $table : new QueryTable($table, $alias);
+		$this->_insert = $table instanceof QueryTableName ? $table : new QueryTableName($table, $alias);
 		return $this;
 	}
 
 
 
 	/**
-	 * @param string|array|QueryTable $table
+	 * @param string|array|QueryTableName $table
 	 * @param string $alias=null
 	 * @return $this
 	 */
@@ -198,7 +224,7 @@ class Query
 
 	/**
 	 * @param string|QueryJoin $type
-	 * @param QueryTable $table=null
+	 * @param QueryTableName $table=null
 	 * @param string $on=null
 	 * @return $this
 	 */
@@ -325,9 +351,37 @@ class Query
 	}
 
 
+	/**
+	 * @param string $name
+	 * @param string $dir=null ASC|DESC
+	 * @return $this
+	 */
+	public function order($name, $dir = null)
+	{
+		$this->_orders[] = array($name, $dir);
+		return $this;
+	}
+
+
+	/**
+	 * @param int $limit
+	 * @param int $begin=0
+	 * @return $this
+	 */
+	public function offset($limit, $begin=0)
+	{
+		$this->_offsetLimit = (int) $limit;
+		$this->_offsetBegin = (int) $begin;
+		return $this;
+	}
+
+
+
+
 	public function __toString()
 	{
 		$query = '';
+		$dbLink = $this->getDbLink();
 		switch ($this->_type){
 			case 'insert':
 				$query.= 'INSERT'.' INTO '.$this->_insert;
@@ -364,6 +418,7 @@ class Query
 					$query.= ' WHERE '.implode(' AND ', $this->_where);
 				break;
 			default:
+				// ---------------- SELECT QUERY --------------------
 				$query = 'SELECT';
 				if($this->_select){
 					$querySelect = $this->_select;
@@ -383,7 +438,29 @@ class Query
 					$query.= ' '.implode(',', $queryFrom);
 					$queryFrom = null;
 				}
-			echo $query;
+
+				if($this->_orders){
+					$query.= ' ORDER BY';
+					$queryOrder = $this->_orders;
+					foreach ($queryOrder as &$v){
+						$v = $v[0].(empty($v[1])?'':' '.$v[1]);
+					}
+					$query.= ' '.implode(',', $queryOrder);
+					$queryOrder=null;
+				}
+
+				if($this->_offsetLimit){
+					switch ($dbLink->config->driver){
+						case Fastdb::DRIVER_MYSQL:
+							$query.= ' LIMIT '.$this->_offsetLimit;
+							if($this->_offsetBegin) $query.= ' OFFSET '.$this->_offsetBegin;
+							break;
+						case Fastdb::DRIVER_SQLSRV:
+							$query.= ' OFFSET '.$this->_offsetLimit.' ROWS';
+							if($this->_offsetBegin) $query.= ' FETCH NEXT '.$this->_offsetBegin.' ROWS ONLY';
+							break;
+					}
+				}
 
 		}
 		return $query;
