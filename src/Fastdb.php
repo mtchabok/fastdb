@@ -17,6 +17,8 @@ class Fastdb extends \PDO
 	CONST DRIVER_SQLSRV = 'sqlsrv';
 	CONST DRIVER_SQLITE = 'sqlite';
 
+
+
 	/**
 	 * @var Config
 	 */
@@ -50,6 +52,30 @@ class Fastdb extends \PDO
 
 
 	/**
+	 * return quote database name
+	 * @param string $name
+	 * @return string
+	 */
+	public function quoteDatabase($name)
+	{
+		$return = '';
+		$name = preg_replace(Query::DATABASENAMEPATTERN, '$1', $name);
+		switch ($this->config->driver){
+			case self::DRIVER_MYSQL:
+				$return = str_replace('`','', $name);
+				$return = '`'.str_replace('.','`.`', $return).'`';
+				break;
+			case self::DRIVER_SQLSRV:
+				$return = str_replace(['[',']'],'', $name);
+				$return = '['.str_replace('.','].[', $return).']';
+				break;
+		}
+		return $return;
+	}
+
+
+
+	/**
 	 * return quote table name
 	 * @param string $name
 	 * @return string
@@ -57,15 +83,30 @@ class Fastdb extends \PDO
 	public function quoteTable($name)
 	{
 		$return = '';
+		$name = preg_replace(Query::TABLENAMEPATTERN, '$1', $name);
 		switch ($this->config->driver){
 			case self::DRIVER_MYSQL:
-				$return = explode('.', trim($name, ' `'));
-				foreach ($return as &$v) $v = '`'.trim($v, ' `').'`';
+				$return = explode('.', $name);
+				$tableName = trim(array_pop($return), ' `');
+				if($this->config->tablePrefix)
+					$tableName = $this->config->tablePrefix.$tableName;
+				$tableName = '`'.$tableName.'`';
+				if($return){
+					$return = $this->quoteDatabase(implode('.', $return));
+					$return = array($return, $tableName);
+				}else $return = array($tableName);
 				$return = implode('.', $return);
 				break;
 			case self::DRIVER_SQLSRV:
-				$return = explode('.', trim($name, ' []'));
-				foreach ($return as &$v) $v = '['.trim($v, ' []').']';
+				$return = explode('.', $name);
+				$tableName = trim(array_pop($return), ' []');
+				if($this->config->tablePrefix)
+					$tableName = $this->config->tablePrefix.$tableName;
+				$tableName = '['.$tableName.']';
+				if($return){
+					$return = $this->quoteDatabase(implode('.', $return));
+					$return = array($return, $tableName);
+				}else $return = array($tableName);
 				$return = implode('.', $return);
 				break;
 		}
@@ -81,15 +122,24 @@ class Fastdb extends \PDO
 	public function quoteName($name)
 	{
 		$return = '';
+		$name = preg_replace(Query::FIELDNAMEPATTERN, '$1', $name);
 		switch ($this->config->driver){
 			case self::DRIVER_MYSQL:
-				$return = explode('.', trim($name, ' `'));
-				foreach ($return as &$v) $v = '`'.trim($v, ' `').'`';
+				$return = explode('.', $name);
+				$fieldName = '`'.trim(array_pop($return), ' `').'`';
+				if($return){
+					$return = $this->quoteTable(implode('.', $return));
+					$return = array($return, $fieldName);
+				}else $return = array($fieldName);
 				$return = implode('.', $return);
 				break;
 			case self::DRIVER_SQLSRV:
-				$return = explode('.', trim($name, ' []'));
-				foreach ($return as &$v) $v = '['.trim($v, ' []').']';
+				$return = explode('.', $name);
+				$fieldName = '['.trim(array_pop($return), ' []').']';
+				if($return){
+					$return = $this->quoteTable(implode('.', $return));
+					$return = array($return, $fieldName);
+				}else $return = array($fieldName);
 				$return = implode('.', $return);
 				break;
 		}
@@ -169,7 +219,11 @@ class Fastdb extends \PDO
 		if($this->_status!='on') $this->connect();
 		$this->_query = $statement;
 		try {
-			if($this->_query instanceof Query) $this->_query->setParent($this);
+			if($this->_query instanceof Query){
+				$this->_query->setParent($this);
+				$statement = (string) $statement;
+			}
+			$statement = $this->_prepareQuotes((string) $statement);
 			$this->_statement = parent::prepare((string)$statement, $driver_options);
 			$this->_statement->executed = false;
 		}catch (PDOException $e){
@@ -188,15 +242,23 @@ class Fastdb extends \PDO
 
 	/**
 	 * execute current query object|string
+	 * @param array $input_parameters=null
 	 * @return mixed
 	 */
-	public function execute()
+	public function execute($input_parameters=null)
 	{
 		if($this->_status!='on') $this->connect();
 		$lastStatus = $this->_status;
 		try{
 			$this->_status = 'execute';
-			$this->_statement->executed = $this->_statement->execute();
+			if(null===$input_parameters && $this->_query instanceof Query){
+				$input_parameters=$this->_query->getValues();
+				foreach ($input_parameters as &$input_parameter){
+					if($input_parameter instanceof Query)
+						$input_parameter = '('.$input_parameter.')';
+				}
+			}
+			$this->_statement->executed = $this->_statement->execute($input_parameters);
 			$this->_status = $lastStatus;
 		}catch (PDOException $e){
 			$this->_status = $lastStatus;
@@ -219,7 +281,11 @@ class Fastdb extends \PDO
 		$lastStatus = $this->_status;
 		try {
 			$this->_status = 'execute';
-			if($this->_query instanceof Query) $this->_query->setParent($this);
+			if($this->_query instanceof Query){
+				$this->_query->setParent($this);
+				$statement = (string) $statement;
+			}
+			$statement = $this->_prepareQuotes((string) $statement);
 			$this->_statement = parent::query((string) $statement);
 			$this->_statement->executed = true;
 			$this->_status = $lastStatus;
@@ -244,8 +310,12 @@ class Fastdb extends \PDO
 		$lastStatus = $this->_status;
 		try {
 			$this->_status = 'execute';
-			if($this->_query instanceof Query) $this->_query->setParent($this);
-			$affectedRecords = parent::exec((string) $statement);
+			if($this->_query instanceof Query){
+				$this->_query->setParent($this);
+				$statement = (string) $statement;
+			}
+			$statement = $this->_prepareQuotes((string) $statement);
+			$affectedRecords = parent::exec($statement);
 			$this->_status = $lastStatus;
 		}catch (PDOException $e){
 			$this->_status = $lastStatus;
@@ -342,6 +412,30 @@ class Fastdb extends \PDO
 		}
 	}
 
+
+
+
+	protected function _prepareQuotes($statement){
+		$matches = array();
+		if(preg_match_all(Query::DATABASENAMEPATTERN, $statement, $matches)){
+			for($i=0;$i<count($matches[0]);$i++){
+				$statement = str_replace($matches[0][$i], $this->quoteDatabase($matches[1][$i]), $statement);
+			}
+		}
+		$matches = array();
+		if(preg_match_all(Query::TABLENAMEPATTERN, $statement, $matches)){
+			for($i=0;$i<count($matches[0]);$i++){
+				$statement = str_replace($matches[0][$i], $this->quoteTable($matches[1][$i]), $statement);
+			}
+		}
+		$matches = array();
+		if(preg_match_all(Query::FIELDNAMEPATTERN, $statement, $matches)){
+			for($i=0;$i<count($matches[0]);$i++){
+				$statement = str_replace($matches[0][$i], $this->quoteName($matches[1][$i]), $statement);
+			}
+		}
+		return $statement;
+	}
 
 
 }

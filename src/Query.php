@@ -8,24 +8,27 @@
 
 namespace Fastdb;
 require_once __DIR__.'/QueryName.php';
+require_once __DIR__.'/QueryJoin.php';
 
-class Query
+class Query extends QueryObject
 {
-	const TYPE_SELECT = 'SELECT';
-	const TYPE_INSERT = 'INSERT';
-	const TYPE_UPDATE = 'UPDATE';
-	const TYPE_DELETE = 'DELETE';
+	CONST TYPE_SELECT = 'SELECT';
+	CONST TYPE_INSERT = 'INSERT';
+	CONST TYPE_UPDATE = 'UPDATE';
+	CONST TYPE_DELETE = 'DELETE';
+
+	CONST WHERE_OR = 'OR';
+	CONST WHERE_AND = 'AND';
+
+	CONST DATABASENAMEPATTERN = '/:D_(.*?);/';
+	CONST TABLENAMEPATTERN = '/:T_(.*?);/';
+	CONST FIELDNAMEPATTERN = '/:N_(.*?);/';
 
 	/**
 	 * query type: Query:TYPE_SELECT, ...
 	 * @var string
 	 */
 	protected $_type = self::TYPE_SELECT;
-
-	/**
-	 * @var Query|Fastdb
-	 */
-	protected $_parent;
 
 	/**
 	 * selection fields
@@ -63,11 +66,6 @@ class Query
 	 */
 	protected $_join = array();
 
-	/**
-	 * array of bind value
-	 * @var array
-	 */
-	protected $_values = array();
 
 
 	/**
@@ -92,48 +90,6 @@ class Query
 	public function __construct($parent=null)
 	{
 		if(null!==$parent) $this->setParent($parent);
-	}
-
-
-
-	/**
-	 * parent query
-	 * @return Query|Fastdb
-	 */
-	public function getParent()
-	{
-		return $this->_parent;
-	}
-
-	/**
-	 * @return Fastdb|null
-	 */
-	public function getDbLink()
-	{
-		return $this->_parent instanceof Fastdb
-			?$this->_parent
-			:($this->_parent instanceof Query?$this->_parent->getDbLink():null);
-	}
-
-	/**
-	 * @param Fastdb|Query $parent
-	 * @return $this
-	 */
-	public function setParent($parent)
-	{
-		if($parent instanceof Fastdb || $parent instanceof Query)
-			$this->_parent = $parent;
-		else throw new FastdbException('only Fastdb | Query object');
-		return $this;
-	}
-
-
-	/**
-	 * @return Query
-	 */
-	public function getQuery()
-	{
-		return new Query($this);
 	}
 
 
@@ -230,125 +186,20 @@ class Query
 	 */
 	public function join($type, $table=null, $on=null)
 	{
-		if($type instanceof QueryJoin){
-			$this->_join[] = $type;
-		}else{
-			$this->_join[] = new QueryJoin($type, $table, $on);
-		}
+		$join = $type instanceof QueryJoin
+			? $type
+			: new QueryJoin($type, $table, $on);
+		$this->_join[] = $join;
+		$join->setParent($this);
 		return $this;
 	}
 
 
-	/**
-	 * @param string $value
-	 * @return string
-	 */
-	public function quote($value)
+	public function getNewJoin()
 	{
-		$return = null;
-		if($this->_parent) $return = $this->_parent->quote($value);
-		return $return;
+		return new QueryJoin();
 	}
 
-
-	/**
-	 * @param string $name
-	 * @return string
-	 */
-	public function quoteTable($name)
-	{
-		$return = null;
-		if($this->_parent) $return = $this->_parent->quoteTable($name);
-		return $return;
-	}
-
-
-	/**
-	 * @param string $name
-	 * @return string
-	 */
-	public function quoteName($name)
-	{
-		$return = null;
-		if($this->_parent) $return = $this->_parent->quoteName($name);
-		return $return;
-	}
-
-
-
-	/**
-	 * @param string|array $key
-	 * @param mixed $value=null
-	 * @return $this
-	 */
-	public function setValue($key, $value=null)
-	{
-		$values = is_array($key)?$key:array($key=>$value);
-		foreach ($values as $key=>&$value){
-			$key = ':'.ltrim($key, ' :');
-			$this->_values[$key] = $value;
-		}
-		if($this->_parent instanceof Query)
-			$this->_parent->setValue($key, $value);
-		return $this;
-	}
-
-
-	/**
-	 * @param string $key
-	 * @return mixed|null
-	 */
-	public function getValue($key)
-	{
-		$key = ':'.ltrim($key, ' :');
-		$return = null;
-		if(array_key_exists($key, $this->_values))
-			$return = $this->_values[$key];
-		return $return;
-	}
-
-
-	/**
-	 * return all values
-	 * @return array
-	 */
-	public function getValues()
-	{
-		return $this->_values;
-	}
-
-
-	/**
-	 * bind value and return key
-	 * @param string|array|Query $value
-	 * @param string $key=null
-	 * @return array|string
-	 */
-	public function value($value = null, $key = null)
-	{
-		$returnIsArray = false;
-		if(!is_array($value)){
-			$values = $value;
-			$returnIsArray = true;
-		}else $values = array($key=>$value);
-
-		if($this->_parent instanceof Query){
-			$keys = $this->_parent->value($values);
-		}else{
-			$keys = array_keys($values);
-			foreach ($keys as &$key){
-				if(!$key || is_numeric($key)) $key = uniqid(':VAL');
-				else $key = ':'.ltrim($key, ' :');
-			}
-		}
-
-		$values = array_values($values);
-		for($i=0;$i<count($keys);$i++){
-			$this->_values[$keys[$i]] = $values[$i];
-		}
-
-		return $returnIsArray?$keys:$keys[0];
-	}
 
 
 	/**
@@ -382,40 +233,16 @@ class Query
 	{
 		$query = '';
 		$dbLink = $this->getDbLink();
+		$this->_childesValues = array();
 		switch ($this->_type){
 			case 'insert':
-				$query.= 'INSERT'.' INTO '.$this->_insert;
-				$queryNames = array();
-				foreach ($this->_columns as $c) $queryNames[] = '#N_'.$c;
-				$query.= ' ('.implode(',', $queryNames).')';
 
-				$queryValues = array();
-				foreach ($this->_values as &$row){
-					$r = array();
-					foreach ($this->_columns as $k=>$c){
-						$r[] = isset($row[$k])?$row[$k]:'null';
-					}
-					$queryValues[] = '('.implode(',', $r).')';
-				}
-				$query.= ' VALUES '.implode(',', $queryValues);
 				break;
 			case 'update':
-				$query.= 'UPDATE '.$this->_update;
-				$queryValues = array();
-				foreach ($this->_values as &$row){
-					foreach ($this->_columns as $k=>$c){
-						$queryValues[] = '#N_'.$c.'='.(isset($row[$k])?$row[$k]:'null');
-					}
-					break;
-				}
-				$query.= ' SET '.implode(',', $queryValues);
-				if($this->_where)
-					$query.= ' WHERE '.implode(' AND ', $this->_where);
+
 				break;
 			case 'delete':
-				$query.= 'DELETE'.' FROM '.$this->_delete;
-				if($this->_where)
-					$query.= ' WHERE '.implode(' AND ', $this->_where);
+
 				break;
 			default:
 				// ---------------- SELECT QUERY --------------------
@@ -423,7 +250,22 @@ class Query
 				if($this->_select){
 					$querySelect = $this->_select;
 					foreach ($querySelect as &$qs){
-						$qs = ''.$qs;
+						$qss = ''.$qs;
+						if($qs instanceof QuerySelectName){
+							$childValues = $qs->_getAllValues();
+							foreach ($childValues as $k=>&$v){
+								if(
+									(array_key_exists($k, $this->_childesValues) && $this->_childesValues[$k]!=$v)
+									|| (array_key_exists($k, $this->_values) && $this->_values[$k]!=$v)
+								){
+									$kNew = uniqid(':VAL');
+									$qss = str_replace($k, $kNew, $qss);
+									$k=$kNew;
+								}
+								$this->_childesValues[$k]=$v;
+							}
+						}
+						$qs = $qss;
 					}
 					$query.= ' '.implode(',', $querySelect);
 					$querySelect = null;
@@ -433,7 +275,22 @@ class Query
 					$query.= ' FROM';
 					$queryFrom = $this->_from;
 					foreach ($queryFrom as &$qf){
-						$qf = ''.$qf;
+						$qfs = ''.$qf;
+						if($qf instanceof QueryTableName){
+							$childValues = $qf->_getAllValues();
+							foreach ($childValues as $k=>&$v){
+								if(
+									(array_key_exists($k, $this->_childesValues) && $this->_childesValues[$k]!=$v)
+									|| (array_key_exists($k, $this->_values) && $this->_values[$k]!=$v)
+								){
+									$kNew = uniqid(':VAL');
+									$qfs = str_replace($k, $kNew, $qfs);
+									$k=$kNew;
+								}
+								$this->_childesValues[$k]=$v;
+							}
+						}
+						$qf = $qfs;
 					}
 					$query.= ' '.implode(',', $queryFrom);
 					$queryFrom = null;
